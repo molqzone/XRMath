@@ -101,13 +101,13 @@ class STM32Cordic : public Cordic
     LL_CORDIC_WriteData(instance_, static_cast<uint32_t>(angle_q31));
     uint32_t cos_q31_raw = 0U;
     uint32_t sin_q31_raw = 0U;
-    if (!ReadWhenReady(cos_q31_raw) || !ReadWhenReady(sin_q31_raw))
+    TrigPair trig_pair = {};
+    if (ReadPairWhenReady(cos_q31_raw, sin_q31_raw))
     {
-      return {};
+      trig_pair.sin = Q31ToFloat(static_cast<int32_t>(sin_q31_raw));
+      trig_pair.cos = Q31ToFloat(static_cast<int32_t>(cos_q31_raw));
     }
-
-    return {Q31ToFloat(static_cast<int32_t>(sin_q31_raw)),
-            Q31ToFloat(static_cast<int32_t>(cos_q31_raw))};
+    return trig_pair;
   }
 
   [[nodiscard]] float SinNoConfig(float radians) const
@@ -224,27 +224,53 @@ class STM32Cordic : public Cordic
     return radians;
   }
 
-  [[nodiscard]] bool ReadWhenReady(uint32_t& out) const
+  [[nodiscard]] [[gnu::noinline]] bool ReadPairWhenReady(uint32_t& first,
+                                                          uint32_t& second) const
   {
-    if (config_.wait_cycles == 0U)
+    uint32_t wait =
+        config_.wait_cycles + static_cast<uint32_t>(config_.wait_cycles == 0U);
+    do
     {
       if (LL_CORDIC_IsActiveFlag_RRDY(instance_) != 0U)
       {
-        out = LL_CORDIC_ReadData(instance_);
-        return true;
+        first = LL_CORDIC_ReadData(instance_);
+        break;
       }
+      --wait;
+    } while (wait != 0U);
+
+    if (wait == 0U)
+    {
       return false;
     }
 
-    uint32_t wait = config_.wait_cycles;
-    while (wait-- > 0U)
+    wait = config_.wait_cycles + static_cast<uint32_t>(config_.wait_cycles == 0U);
+    do
+    {
+      if (LL_CORDIC_IsActiveFlag_RRDY(instance_) != 0U)
+      {
+        second = LL_CORDIC_ReadData(instance_);
+        return true;
+      }
+      --wait;
+    } while (wait != 0U);
+
+    return false;
+  }
+
+  [[nodiscard]] [[gnu::noinline]] bool ReadWhenReady(uint32_t& out) const
+  {
+    uint32_t wait =
+        config_.wait_cycles + static_cast<uint32_t>(config_.wait_cycles == 0U);
+    do
     {
       if (LL_CORDIC_IsActiveFlag_RRDY(instance_) != 0U)
       {
         out = LL_CORDIC_ReadData(instance_);
         return true;
       }
-    }
+      --wait;
+    } while (wait != 0U);
     return false;
   }
 
